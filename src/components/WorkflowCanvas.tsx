@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Workflow, WorkflowNode } from '../types/workflow';
 import { Button } from './ui/button';
-import { Plus, ZoomIn, ZoomOut, RotateCcw, Link, ArrowRight, Circle } from 'lucide-react';
+import { Plus, ZoomIn, ZoomOut, RotateCcw, ArrowRight } from 'lucide-react';
 import NodeForm from './NodeForm';
 
 interface WorkflowCanvasProps {
@@ -19,6 +19,7 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
   const [isNodeFormOpen, setIsNodeFormOpen] = useState(false);
   const [nodes, setNodes] = useState<WorkflowNode[]>(workflow.nodes);
   const [nodePositions, setNodePositions] = useState<Record<string, { x: number, y: number }>>({});
+  const [connectingNode, setConnectingNode] = useState<string | null>(null);
   
   // Update nodes when workflow changes
   useEffect(() => {
@@ -89,21 +90,6 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
         };
       });
       
-      // Also update the nodes array but with less frequency
-      setNodes(prevNodes => prevNodes.map(node => {
-        if (node.id === dragging) {
-          const position = nodePositions[node.id] || node.position;
-          return {
-            ...node,
-            position: {
-              x: position.x + dx,
-              y: position.y + dy
-            }
-          };
-        }
-        return node;
-      }));
-      
       setStartPos({ x: e.clientX, y: e.clientY });
     }
   };
@@ -148,6 +134,28 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
       updatedAt: new Date().toISOString()
     };
     onUpdateWorkflow(updatedWorkflow);
+  };
+
+  // Start connecting nodes
+  const handleStartConnection = (e: React.MouseEvent, sourceId: string) => {
+    e.stopPropagation();
+    setConnectingNode(sourceId);
+  };
+
+  // Complete node connection
+  const handleCompleteConnection = (e: React.MouseEvent, targetId: string) => {
+    e.stopPropagation();
+    if (connectingNode && connectingNode !== targetId) {
+      handleConnectNodes(connectingNode, targetId);
+    }
+    setConnectingNode(null);
+  };
+
+  // Cancel connection if clicked outside
+  const handleCancelConnection = (e: React.MouseEvent) => {
+    if (connectingNode && e.target === canvasRef.current) {
+      setConnectingNode(null);
+    }
   };
 
   // Function to connect nodes
@@ -258,21 +266,25 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
 
         {/* Source Connection handle */}
         <div 
-          className="absolute w-4 h-4 bg-primary rounded-full border-2 border-white right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 shadow-md z-20 cursor-crosshair"
+          className={`absolute w-4 h-4 bg-primary rounded-full border-2 border-white right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 shadow-md z-20 cursor-crosshair 
+                     ${connectingNode === node.id ? 'ring-2 ring-offset-2 ring-primary' : ''}`}
           style={{ marginTop: -10 }}
           onMouseDown={(e) => {
             e.stopPropagation();
-            // Here you would start the connection process
+            handleStartConnection(e, node.id);
           }}
         />
         
         {/* Target Connection handle */}
         <div 
-          className="absolute w-4 h-4 bg-primary rounded-full border-2 border-white left-0 top-1/2 transform -translate-x-1/2 -translate-y-1/2 shadow-md z-20 cursor-crosshair"
+          className={`absolute w-4 h-4 bg-primary rounded-full border-2 border-white left-0 top-1/2 transform -translate-x-1/2 -translate-y-1/2 shadow-md z-20 cursor-crosshair
+                     ${connectingNode && connectingNode !== node.id ? 'ring-2 ring-offset-2 ring-primary animate-pulse' : ''}`}
           style={{ marginTop: -10 }}
           onMouseDown={(e) => {
             e.stopPropagation();
-            // Here you would handle the target connection
+            if (connectingNode) {
+              handleCompleteConnection(e, node.id);
+            }
           }}
         />
       </div>
@@ -363,46 +375,132 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
           
           {/* Animated dot for active workflows - WHITE dot only */}
           {workflow.status === 'active' && (
-            <g>
-              <circle 
-                cx="0" cy="0" r="4" 
-                className={`${pathColor.replace('stroke-', 'fill-')}`}
-              >
-                <animate
-                  attributeName="cx"
-                  from={startX}
-                  to={endX}
-                  dur={`${2 + Math.random() * 2}s`}
-                  repeatCount="indefinite"
-                  calcMode="spline"
-                  keySplines="0.4 0 0.6 1"
-                />
-                <animate
-                  attributeName="cy"
-                  from={startY}
-                  to={endY}
-                  dur={`${2 + Math.random() * 2}s`}
-                  repeatCount="indefinite"
-                  calcMode="spline"
-                  keySplines="0.4 0 0.6 1"
-                />
-                <animate
-                  attributeName="opacity"
-                  from="0"
-                  to="1"
-                  dur="0.5s"
-                  begin="0s"
-                  fill="freeze"
-                />
-              </circle>
-              
-              {/* Removed the pulse effect (black dot) as requested */}
-            </g>
+            <circle 
+              cx="0" cy="0" r="4" 
+              className={`${pathColor.replace('stroke-', 'fill-')}`}
+            >
+              <animate
+                attributeName="cx"
+                from={startX}
+                to={endX}
+                dur={`${2 + Math.random() * 2}s`}
+                repeatCount="indefinite"
+                calcMode="spline"
+                keySplines="0.4 0 0.6 1"
+              />
+              <animate
+                attributeName="cy"
+                from={startY}
+                to={endY}
+                dur={`${2 + Math.random() * 2}s`}
+                repeatCount="indefinite"
+                calcMode="spline"
+                keySplines="0.4 0 0.6 1"
+              />
+              <animate
+                attributeName="opacity"
+                from="0"
+                to="1"
+                dur="0.5s"
+                begin="0s"
+                fill="freeze"
+              />
+            </circle>
           )}
         </svg>
       );
     });
   };
+
+  // Render connecting line when making a connection
+  const renderConnectingLine = () => {
+    if (!connectingNode) return null;
+    
+    const sourceNode = nodes.find(node => node.id === connectingNode);
+    if (!sourceNode) return null;
+    
+    const sourcePosition = nodePositions[sourceNode.id] || sourceNode.position;
+    
+    // Calculate starting point
+    const startX = sourcePosition.x + 220; // nodeWidth
+    const startY = sourcePosition.y + 60;  // nodeHeight / 2
+    
+    // Get path color based on node type
+    const getPathColor = () => {
+      switch (sourceNode.type) {
+        case 'trigger':
+          return 'stroke-blue-500';
+        case 'action':
+          return 'stroke-green-500';
+        case 'condition':
+          return 'stroke-amber-500';
+        default:
+          return 'stroke-gray-500';
+      }
+    };
+    
+    const pathColor = getPathColor();
+    
+    return (
+      <svg
+        className="absolute top-0 left-0 w-full h-full pointer-events-none"
+        style={{ 
+          zIndex: 30, 
+          transform: `scale(${zoom}) translate(${canvasOffset.x}px, ${canvasOffset.y}px)`,
+          transformOrigin: '0 0',
+          width: '100%',
+          height: '100%',
+          overflow: 'visible'
+        }}
+      >
+        <path
+          id="connecting-line"
+          className={`${pathColor} fill-transparent`}
+          style={{ strokeWidth: 2, strokeDasharray: '5,5' }}
+        />
+      </svg>
+    );
+  };
+  
+  useEffect(() => {
+    // Update connecting line on mouse move if we are connecting nodes
+    if (!connectingNode) return;
+    
+    const updateConnectingLine = (e: MouseEvent) => {
+      const sourceNode = nodes.find(node => node.id === connectingNode);
+      if (!sourceNode) return;
+      
+      const sourcePosition = nodePositions[sourceNode.id] || sourceNode.position;
+      
+      // Calculate starting point
+      const startX = sourcePosition.x + 220; // nodeWidth
+      const startY = sourcePosition.y + 60;  // nodeHeight / 2
+      
+      // Calculate cursor position relative to canvas
+      const canvasBounds = canvasRef.current?.getBoundingClientRect();
+      if (!canvasBounds) return;
+      
+      // Adjust for zoom and offset
+      const endX = (e.clientX - canvasBounds.left) / zoom - canvasOffset.x;
+      const endY = (e.clientY - canvasBounds.top) / zoom - canvasOffset.y;
+      
+      // Calculate control points for a curved path
+      const distance = Math.abs(endX - startX);
+      const curvature = Math.min(distance * 0.4, 150);
+      
+      // Update path
+      const path = document.getElementById('connecting-line');
+      if (path) {
+        path.setAttribute('d', `M ${startX} ${startY} C ${startX + curvature} ${startY}, ${endX - curvature} ${endY}, ${endX} ${endY}`);
+      }
+    };
+    
+    document.addEventListener('mousemove', updateConnectingLine);
+    
+    return () => {
+      document.removeEventListener('mousemove', updateConnectingLine);
+    };
+  }, [connectingNode, nodes, nodePositions, zoom, canvasOffset]);
 
   const handleZoomIn = () => {
     setZoom(prev => Math.min(prev + 0.1, 2));
@@ -469,6 +567,7 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onClick={handleCancelConnection}
       >
         <div 
           className="absolute min-w-full min-h-full"
@@ -478,10 +577,11 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
             backgroundSize: '20px 20px',
             backgroundImage: 'radial-gradient(circle, #D0D0D0 1px, transparent 1px)',
             transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px)`,
-            cursor: dragging ? (dragging === 'canvas' ? 'grabbing' : 'default') : 'grab'
+            cursor: dragging ? (dragging === 'canvas' ? 'grabbing' : 'default') : (connectingNode ? 'crosshair' : 'grab')
           }}
         >
           {renderConnections()}
+          {renderConnectingLine()}
           {nodes.map(renderNode)}
           
           {nodes.length === 0 && (
