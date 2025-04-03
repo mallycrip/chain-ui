@@ -340,29 +340,32 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
           )}
         </div>
 
-        {/* Source Connection handle */}
-        <div 
-          className={`absolute w-4 h-4 bg-primary rounded-full border-2 border-white right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 shadow-md z-20 cursor-crosshair 
-                     ${connectingNode === node.id ? 'ring-2 ring-offset-2 ring-primary' : ''}`}
-          style={{ marginTop: -10 }}
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            handleStartConnection(e, node.id);
-          }}
-        />
+        {/* Source Connection handle - Only show when node is selected */}
+        {isSelected && (
+          <div 
+            className={`absolute w-4 h-4 bg-primary rounded-full border-2 border-white right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 shadow-md z-20 cursor-crosshair 
+                      ${connectingNode === node.id ? 'ring-2 ring-offset-2 ring-primary' : ''}`}
+            style={{ marginTop: -10 }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              handleStartConnection(e, node.id);
+            }}
+          />
+        )}
         
-        {/* Target Connection handle */}
-        <div 
-          className={`absolute w-4 h-4 bg-primary rounded-full border-2 border-white left-0 top-1/2 transform -translate-x-1/2 -translate-y-1/2 shadow-md z-20 cursor-crosshair
-                     ${connectingNode && connectingNode !== node.id ? 'ring-2 ring-offset-2 ring-primary animate-pulse' : ''}`}
-          style={{ marginTop: -10 }}
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            if (connectingNode) {
-              handleCompleteConnection(e, node.id);
-            }
-          }}
-        />
+        {/* Target Connection handle - Only show when another node is being connected */}
+        {(connectingNode && connectingNode !== node.id) && (
+          <div 
+            className="absolute w-4 h-4 bg-primary rounded-full border-2 border-white left-0 top-1/2 transform -translate-x-1/2 -translate-y-1/2 shadow-md z-20 cursor-crosshair ring-2 ring-offset-2 ring-primary animate-pulse"
+            style={{ marginTop: -10 }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              if (connectingNode) {
+                handleCompleteConnection(e, node.id);
+              }
+            }}
+          />
+        )}
       </div>
     );
   };
