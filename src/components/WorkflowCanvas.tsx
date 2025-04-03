@@ -3,25 +3,34 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Workflow, WorkflowNode } from '../types/workflow';
 import { Button } from './ui/button';
 import { Plus, ZoomIn, ZoomOut, RotateCcw, Link, ArrowRight, Circle } from 'lucide-react';
+import NodeForm from './NodeForm';
 
 interface WorkflowCanvasProps {
   workflow: Workflow;
+  onUpdateWorkflow: (updatedWorkflow: Workflow) => void;
 }
 
-const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow }) => {
+const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkflow }) => {
   const [zoom, setZoom] = useState(1);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
+  const [isNodeFormOpen, setIsNodeFormOpen] = useState(false);
+  const [nodes, setNodes] = useState<WorkflowNode[]>(workflow.nodes);
   
+  // Update nodes when workflow changes
+  useEffect(() => {
+    setNodes(workflow.nodes);
+  }, [workflow.nodes]);
+
   // Calculate line coordinates between nodes
   const getNodeConnections = () => {
     const connections: { from: WorkflowNode; to: WorkflowNode }[] = [];
     
-    workflow.nodes.forEach(node => {
+    nodes.forEach(node => {
       node.connections.forEach(targetId => {
-        const targetNode = workflow.nodes.find(n => n.id === targetId);
+        const targetNode = nodes.find(n => n.id === targetId);
         if (targetNode) {
           connections.push({ from: node, to: targetNode });
         }
@@ -29,6 +38,13 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow }) => {
     });
     
     return connections;
+  };
+
+  // Handle node dragging
+  const handleNodeMouseDown = (e: React.MouseEvent, nodeId: string) => {
+    e.stopPropagation();
+    setDragging(nodeId);
+    setStartPos({ x: e.clientX, y: e.clientY });
   };
 
   // Handle canvas panning
@@ -40,6 +56,8 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow }) => {
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (!dragging) return;
+    
     if (dragging === 'canvas' && canvasRef.current) {
       const dx = (e.clientX - startPos.x) / zoom;
       const dy = (e.clientY - startPos.y) / zoom;
@@ -48,11 +66,76 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow }) => {
         y: canvasOffset.y + dy
       });
       setStartPos({ x: e.clientX, y: e.clientY });
+    } else if (dragging !== 'canvas') {
+      // Move the node
+      const dx = (e.clientX - startPos.x) / zoom;
+      const dy = (e.clientY - startPos.y) / zoom;
+      
+      const updatedNodes = nodes.map(node => {
+        if (node.id === dragging) {
+          return {
+            ...node,
+            position: {
+              x: node.position.x + dx,
+              y: node.position.y + dy
+            }
+          };
+        }
+        return node;
+      });
+      
+      setNodes(updatedNodes);
+      setStartPos({ x: e.clientX, y: e.clientY });
     }
   };
 
   const handleMouseUp = () => {
+    if (dragging && dragging !== 'canvas') {
+      // Update the workflow with the new node positions
+      const updatedWorkflow = {
+        ...workflow,
+        nodes: nodes,
+        updatedAt: new Date().toISOString()
+      };
+      onUpdateWorkflow(updatedWorkflow);
+    }
     setDragging(null);
+  };
+
+  const handleAddNode = (newNode: WorkflowNode) => {
+    const updatedNodes = [...nodes, newNode];
+    setNodes(updatedNodes);
+    
+    const updatedWorkflow = {
+      ...workflow,
+      nodes: updatedNodes,
+      updatedAt: new Date().toISOString()
+    };
+    onUpdateWorkflow(updatedWorkflow);
+  };
+
+  // Function to connect nodes
+  const handleConnectNodes = (sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return;
+    
+    const updatedNodes = nodes.map(node => {
+      if (node.id === sourceId && !node.connections.includes(targetId)) {
+        return {
+          ...node,
+          connections: [...node.connections, targetId]
+        };
+      }
+      return node;
+    });
+    
+    setNodes(updatedNodes);
+    
+    const updatedWorkflow = {
+      ...workflow,
+      nodes: updatedNodes,
+      updatedAt: new Date().toISOString()
+    };
+    onUpdateWorkflow(updatedWorkflow);
   };
   
   const renderNode = (node: WorkflowNode) => {
@@ -102,7 +185,7 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow }) => {
     return (
       <div 
         key={node.id}
-        className={`absolute flex flex-col p-3 rounded-lg shadow-lg border-2 transition-all duration-200 
+        className={`absolute flex flex-col p-3 rounded-lg shadow-lg border-2 transition-all duration-200 cursor-move
                     hover:shadow-xl hover:translate-y-[-2px] ${styles.borderColor} ${styles.bgColor} ${styles.shadowColor}`}
         style={{
           width: `${nodeWidth}px`,
@@ -111,8 +194,9 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow }) => {
           top: `${node.position.y}px`,
           transform: `scale(${zoom})`,
           transformOrigin: 'center center',
-          zIndex: 10
+          zIndex: dragging === node.id ? 20 : 10
         }}
+        onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
       >
         <div className="flex items-center gap-2 mb-2">
           <div className={`flex items-center justify-center w-7 h-7 rounded-full ${styles.bgColor} ${styles.iconColor} text-lg font-bold`}>
@@ -133,10 +217,25 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow }) => {
           )}
         </div>
 
-        {/* Connection handle */}
+        {/* Source Connection handle */}
         <div 
-          className="absolute w-4 h-4 bg-primary rounded-full border-2 border-white right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 shadow-md z-20"
+          className="absolute w-4 h-4 bg-primary rounded-full border-2 border-white right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 shadow-md z-20 cursor-crosshair"
           style={{ marginTop: -10 }}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            // Here you would start the connection process
+            // For simplicity, we're not implementing the full connection UI
+          }}
+        />
+        
+        {/* Target Connection handle */}
+        <div 
+          className="absolute w-4 h-4 bg-primary rounded-full border-2 border-white left-0 top-1/2 transform -translate-x-1/2 -translate-y-1/2 shadow-md z-20 cursor-crosshair"
+          style={{ marginTop: -10 }}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            // Here you would handle the target connection
+          }}
         />
       </div>
     );
@@ -182,7 +281,14 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow }) => {
         <svg
           key={`connection-${index}`}
           className="absolute top-0 left-0 w-full h-full pointer-events-none"
-          style={{ zIndex: 5, transform: `scale(${zoom})`, transformOrigin: 'center center' }}
+          style={{ 
+            zIndex: 5, 
+            transform: `scale(${zoom}) translate(${canvasOffset.x}px, ${canvasOffset.y}px)`,
+            transformOrigin: '0 0',
+            width: '100%',
+            height: '100%',
+            overflow: 'visible'
+          }}
         >
           <defs>
             <marker
@@ -340,6 +446,15 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow }) => {
         >
           <RotateCcw className="h-4 w-4" />
         </Button>
+        <Button 
+          onClick={() => setIsNodeFormOpen(true)}
+          variant="outline" 
+          size="sm"
+          className="ml-2 text-xs"
+        >
+          <Plus className="h-3 w-3 mr-1" />
+          노드 추가
+        </Button>
       </div>
       
       <div 
@@ -358,16 +473,21 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow }) => {
             height: '1000px',
             backgroundSize: '20px 20px',
             backgroundImage: 'radial-gradient(circle, #e5e7eb 1px, transparent 1px)',
-            transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px)`
+            transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px)`,
+            cursor: dragging ? (dragging === 'canvas' ? 'grabbing' : 'default') : 'grab'
           }}
         >
           {renderConnections()}
-          {workflow.nodes.map(renderNode)}
+          {nodes.map(renderNode)}
           
-          {workflow.nodes.length === 0 && (
+          {nodes.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
               <div className="mb-4">이 워크플로우에는 노드가 없습니다</div>
-              <Button variant="outline" className="gap-2">
+              <Button 
+                variant="outline" 
+                className="gap-2"
+                onClick={() => setIsNodeFormOpen(true)}
+              >
                 <Plus className="h-4 w-4" />
                 첫 노드 추가하기
               </Button>
@@ -375,6 +495,13 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow }) => {
           )}
         </div>
       </div>
+      
+      <NodeForm
+        isOpen={isNodeFormOpen}
+        onClose={() => setIsNodeFormOpen(false)}
+        onSubmit={handleAddNode}
+        workflowId={workflow.id}
+      />
     </div>
   );
 };

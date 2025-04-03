@@ -17,6 +17,7 @@ interface WorkflowModalProps {
   onExecute: (workflowId: string) => void;
   onToggleStatus: (workflow: Workflow) => void;
   onDelete: (workflowId: string) => void;
+  onUpdateWorkflow: (updatedWorkflow: Workflow) => void;
 }
 
 const WorkflowModal: React.FC<WorkflowModalProps> = ({
@@ -26,6 +27,7 @@ const WorkflowModal: React.FC<WorkflowModalProps> = ({
   onExecute,
   onToggleStatus,
   onDelete,
+  onUpdateWorkflow,
 }) => {
   const [activeTab, setActiveTab] = useState('canvas');
   
@@ -122,7 +124,10 @@ const WorkflowModal: React.FC<WorkflowModalProps> = ({
           <div className="flex-1 overflow-auto">
             <TabsContent value="canvas" className="flex-1 mt-0 h-full">
               <div className="p-4 h-full bg-muted/30">
-                <WorkflowCanvas workflow={workflow} />
+                <WorkflowCanvas 
+                  workflow={workflow}
+                  onUpdateWorkflow={onUpdateWorkflow}
+                />
               </div>
             </TabsContent>
             
@@ -137,6 +142,9 @@ const WorkflowModal: React.FC<WorkflowModalProps> = ({
                         <span className="font-medium">{count}개</span>
                       </div>
                     ))}
+                    {Object.keys(nodesByType).length === 0 && (
+                      <div className="text-sm text-muted-foreground">노드가 없습니다</div>
+                    )}
                   </div>
                 </div>
                 
@@ -164,18 +172,26 @@ const WorkflowModal: React.FC<WorkflowModalProps> = ({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {workflow.nodes.map((node) => (
-                      <TableRow key={node.id}>
-                        <TableCell className="font-medium">{node.name}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="capitalize">
-                            {node.type}
-                          </Badge>
+                    {workflow.nodes.length > 0 ? (
+                      workflow.nodes.map((node) => (
+                        <TableRow key={node.id}>
+                          <TableCell className="font-medium">{node.name}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="capitalize">
+                              {node.type}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{node.description}</TableCell>
+                          <TableCell>{node.connections.length}</TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center py-6 text-muted-foreground">
+                          노드가 없습니다
                         </TableCell>
-                        <TableCell className="text-muted-foreground">{node.description}</TableCell>
-                        <TableCell>{node.connections.length}</TableCell>
                       </TableRow>
-                    ))}
+                    )}
                   </TableBody>
                 </Table>
               </div>
