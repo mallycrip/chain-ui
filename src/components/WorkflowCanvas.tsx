@@ -18,10 +18,17 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
   const [isNodeFormOpen, setIsNodeFormOpen] = useState(false);
   const [nodes, setNodes] = useState<WorkflowNode[]>(workflow.nodes);
+  const [nodePositions, setNodePositions] = useState<Record<string, { x: number, y: number }>>({});
   
   // Update nodes when workflow changes
   useEffect(() => {
     setNodes(workflow.nodes);
+    // Initialize node positions map
+    const positions: Record<string, { x: number, y: number }> = {};
+    workflow.nodes.forEach(node => {
+      positions[node.id] = { ...node.position };
+    });
+    setNodePositions(positions);
   }, [workflow.nodes]);
 
   // Calculate line coordinates between nodes
@@ -67,24 +74,36 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
       });
       setStartPos({ x: e.clientX, y: e.clientY });
     } else if (dragging !== 'canvas') {
-      // Move the node
+      // Move the node - update directly in nodePositions for immediate visual feedback
       const dx = (e.clientX - startPos.x) / zoom;
       const dy = (e.clientY - startPos.y) / zoom;
       
-      const updatedNodes = nodes.map(node => {
+      setNodePositions(prev => {
+        const nodePos = prev[dragging] || { x: 0, y: 0 };
+        return {
+          ...prev,
+          [dragging]: {
+            x: nodePos.x + dx,
+            y: nodePos.y + dy
+          }
+        };
+      });
+      
+      // Also update the nodes array but with less frequency
+      setNodes(prevNodes => prevNodes.map(node => {
         if (node.id === dragging) {
+          const position = nodePositions[node.id] || node.position;
           return {
             ...node,
             position: {
-              x: node.position.x + dx,
-              y: node.position.y + dy
+              x: position.x + dx,
+              y: position.y + dy
             }
           };
         }
         return node;
-      });
+      }));
       
-      setNodes(updatedNodes);
       setStartPos({ x: e.clientX, y: e.clientY });
     }
   };
@@ -92,9 +111,20 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
   const handleMouseUp = () => {
     if (dragging && dragging !== 'canvas') {
       // Update the workflow with the new node positions
+      const updatedNodes = nodes.map(node => {
+        if (node.id === dragging) {
+          // Use the latest position from nodePositions
+          return {
+            ...node,
+            position: nodePositions[node.id] || node.position
+          };
+        }
+        return node;
+      });
+      
       const updatedWorkflow = {
         ...workflow,
-        nodes: nodes,
+        nodes: updatedNodes,
         updatedAt: new Date().toISOString()
       };
       onUpdateWorkflow(updatedWorkflow);
@@ -105,6 +135,12 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
   const handleAddNode = (newNode: WorkflowNode) => {
     const updatedNodes = [...nodes, newNode];
     setNodes(updatedNodes);
+    
+    // Add to nodePositions
+    setNodePositions(prev => ({
+      ...prev,
+      [newNode.id]: { ...newNode.position }
+    }));
     
     const updatedWorkflow = {
       ...workflow,
@@ -141,6 +177,9 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
   const renderNode = (node: WorkflowNode) => {
     const nodeWidth = 220;
     const nodeHeight = 120;
+    
+    // Get current position from nodePositions if available
+    const position = nodePositions[node.id] || node.position;
     
     // Get node type color and icon
     const getNodeTypeStyles = () => {
@@ -185,13 +224,13 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
     return (
       <div 
         key={node.id}
-        className={`absolute flex flex-col p-3 rounded-lg shadow-lg border-2 transition-all duration-200 cursor-move
-                    hover:shadow-xl hover:translate-y-[-2px] ${styles.borderColor} ${styles.bgColor} ${styles.shadowColor}`}
+        className={`absolute flex flex-col p-3 rounded-lg shadow-lg border-2 transition-transform duration-100 cursor-move
+                    hover:shadow-xl ${styles.borderColor} ${styles.bgColor} ${styles.shadowColor}`}
         style={{
           width: `${nodeWidth}px`,
           height: `${nodeHeight}px`,
-          left: `${node.position.x}px`,
-          top: `${node.position.y}px`,
+          left: `${position.x}px`,
+          top: `${position.y}px`,
           transform: `scale(${zoom})`,
           transformOrigin: 'center center',
           zIndex: dragging === node.id ? 20 : 10
@@ -224,7 +263,6 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
           onMouseDown={(e) => {
             e.stopPropagation();
             // Here you would start the connection process
-            // For simplicity, we're not implementing the full connection UI
           }}
         />
         
@@ -248,11 +286,15 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
       const fromNode = connection.from;
       const toNode = connection.to;
       
+      // Use positions from nodePositions if available
+      const fromPosition = nodePositions[fromNode.id] || fromNode.position;
+      const toPosition = nodePositions[toNode.id] || toNode.position;
+      
       // Calculate starting and ending points for the connection line
-      const startX = fromNode.position.x + 220; // nodeWidth
-      const startY = fromNode.position.y + 60;  // nodeHeight / 2
-      const endX = toNode.position.x;
-      const endY = toNode.position.y + 60;      // nodeHeight / 2
+      const startX = fromPosition.x + 220; // nodeWidth
+      const startY = fromPosition.y + 60;  // nodeHeight / 2
+      const endX = toPosition.x;
+      const endY = toPosition.y + 60;      // nodeHeight / 2
       
       // Calculate control points for a curved path
       const distance = Math.abs(endX - startX);
@@ -319,7 +361,7 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
             }}
           />
           
-          {/* Animated dot for active workflows */}
+          {/* Animated dot for active workflows - WHITE dot only */}
           {workflow.status === 'active' && (
             <g>
               <circle 
@@ -354,45 +396,7 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
                 />
               </circle>
               
-              {/* Pulse effect */}
-              <circle 
-                cx="0" cy="0" r="8" 
-                className={`${pathColor} opacity-60`}
-                style={{ strokeWidth: 1, fill: 'none' }}
-              >
-                <animate
-                  attributeName="cx"
-                  from={startX}
-                  to={endX}
-                  dur={`${2 + Math.random() * 2}s`}
-                  repeatCount="indefinite"
-                  calcMode="spline"
-                  keySplines="0.4 0 0.6 1"
-                />
-                <animate
-                  attributeName="cy"
-                  from={startY}
-                  to={endY}
-                  dur={`${2 + Math.random() * 2}s`}
-                  repeatCount="indefinite"
-                  calcMode="spline"
-                  keySplines="0.4 0 0.6 1"
-                />
-                <animate
-                  attributeName="r"
-                  from="4"
-                  to="10"
-                  dur="1s"
-                  repeatCount="indefinite"
-                />
-                <animate
-                  attributeName="opacity"
-                  from="0.6"
-                  to="0"
-                  dur="1s"
-                  repeatCount="indefinite"
-                />
-              </circle>
+              {/* Removed the pulse effect (black dot) as requested */}
             </g>
           )}
         </svg>
@@ -472,7 +476,7 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
             width: '2000px', 
             height: '1000px',
             backgroundSize: '20px 20px',
-            backgroundImage: 'radial-gradient(circle, #e5e7eb 1px, transparent 1px)',
+            backgroundImage: 'radial-gradient(circle, #D0D0D0 1px, transparent 1px)',
             transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px)`,
             cursor: dragging ? (dragging === 'canvas' ? 'grabbing' : 'default') : 'grab'
           }}
