@@ -83,7 +83,8 @@ const Index = () => {
   const handleToggleStatus = (workflow: Workflow) => {
     const updatedWorkflows = workflows.map(w => {
       if (w.id === workflow.id) {
-        const newStatus = w.status === 'active' ? 'inactive' : 'active';
+        // Ensure we're using the correct type for status
+        const newStatus: 'active' | 'inactive' | 'error' = w.status === 'active' ? 'inactive' : 'active';
         
         toast({
           title: "상태 변경",
