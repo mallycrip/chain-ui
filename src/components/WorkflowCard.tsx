@@ -4,7 +4,7 @@ import { Workflow } from '../types/workflow';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Play, Settings, Calendar, Clock, LayoutGrid } from 'lucide-react';
+import { Play, Settings, Calendar, Clock, LayoutGrid, Link } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 interface WorkflowCardProps {
@@ -52,6 +52,9 @@ const WorkflowCard: React.FC<WorkflowCardProps> = ({ workflow, onManage, onExecu
     return acc;
   }, {} as Record<string, number>);
 
+  // Get connection count for this workflow
+  const connectionCount = workflow.nodes.reduce((sum, node) => sum + node.connections.length, 0);
+
   return (
     <Card className="hover:shadow-md transition-shadow overflow-hidden">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -66,14 +69,26 @@ const WorkflowCard: React.FC<WorkflowCardProps> = ({ workflow, onManage, onExecu
           <span>{getLastRunText()}</span>
         </div>
         
-        <div className="flex items-center text-xs text-muted-foreground">
-          <LayoutGrid className="h-3 w-3 mr-1" />
-          <span>{workflow.nodes.length}개 노드</span>
+        <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
+          <div className="flex items-center">
+            <LayoutGrid className="h-3 w-3 mr-1" />
+            <span>{workflow.nodes.length}개 노드</span>
+          </div>
+          
+          {connectionCount > 0 && (
+            <div className="flex items-center">
+              <Link className="h-3 w-3 mr-1" />
+              <span>{connectionCount}개 연결</span>
+            </div>
+          )}
         </div>
         
         <div className="mt-3 pt-3 border-t flex flex-wrap gap-1">
           {Object.entries(nodesByType).map(([type, count]) => (
-            <div key={type} className="text-xs bg-muted rounded-full px-2 py-0.5 flex items-center">
+            <div 
+              key={type} 
+              className="text-xs bg-muted rounded-full px-2 py-0.5 flex items-center"
+            >
               <span className="mr-1">{getNodeTypeIcon(type)}</span>
               <span className="capitalize">{type}</span>
               <span className="ml-1 font-medium">{count}</span>
