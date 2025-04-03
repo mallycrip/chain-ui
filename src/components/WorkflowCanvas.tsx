@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Workflow, WorkflowNode } from '../types/workflow';
 import { Button } from './ui/button';
-import { Plus, ZoomIn, ZoomOut, RotateCcw, ArrowRight } from 'lucide-react';
+import { Plus, Trash } from 'lucide-react';
 import NodeForm from './NodeForm';
 
 interface WorkflowCanvasProps {
@@ -11,7 +11,6 @@ interface WorkflowCanvasProps {
 }
 
 const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkflow }) => {
-  const [zoom, setZoom] = useState(1);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
@@ -20,6 +19,7 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
   const [nodes, setNodes] = useState<WorkflowNode[]>(workflow.nodes);
   const [nodePositions, setNodePositions] = useState<Record<string, { x: number, y: number }>>({});
   const [connectingNode, setConnectingNode] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
   
   // Update nodes when workflow changes
   useEffect(() => {
@@ -32,7 +32,7 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
     setNodePositions(positions);
   }, [workflow.nodes]);
 
-  // Calculate line coordinates between nodes
+  // Calculate node connections
   const getNodeConnections = () => {
     const connections: { from: WorkflowNode; to: WorkflowNode }[] = [];
     
@@ -53,6 +53,7 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
     e.stopPropagation();
     setDragging(nodeId);
     setStartPos({ x: e.clientX, y: e.clientY });
+    setSelectedNode(nodeId);
   };
 
   // Handle canvas panning
@@ -60,6 +61,7 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
     if (e.target === canvasRef.current) {
       setDragging('canvas');
       setStartPos({ x: e.clientX, y: e.clientY });
+      setSelectedNode(null);
     }
   };
 
@@ -67,8 +69,8 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
     if (!dragging) return;
     
     if (dragging === 'canvas' && canvasRef.current) {
-      const dx = (e.clientX - startPos.x) / zoom;
-      const dy = (e.clientY - startPos.y) / zoom;
+      const dx = e.clientX - startPos.x;
+      const dy = e.clientY - startPos.y;
       setCanvasOffset({
         x: canvasOffset.x + dx,
         y: canvasOffset.y + dy
@@ -76,8 +78,8 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
       setStartPos({ x: e.clientX, y: e.clientY });
     } else if (dragging !== 'canvas') {
       // Move the node - update directly in nodePositions for immediate visual feedback
-      const dx = (e.clientX - startPos.x) / zoom;
-      const dy = (e.clientY - startPos.y) / zoom;
+      const dx = e.clientX - startPos.x;
+      const dy = e.clientY - startPos.y;
       
       setNodePositions(prev => {
         const nodePos = prev[dragging] || { x: 0, y: 0 };
@@ -146,7 +148,15 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
   const handleCompleteConnection = (e: React.MouseEvent, targetId: string) => {
     e.stopPropagation();
     if (connectingNode && connectingNode !== targetId) {
-      handleConnectNodes(connectingNode, targetId);
+      // Check if connection already exists
+      const sourceNode = nodes.find(n => n.id === connectingNode);
+      if (sourceNode && sourceNode.connections.includes(targetId)) {
+        // Connection exists, remove it
+        handleDisconnectNodes(connectingNode, targetId);
+      } else {
+        // Connection doesn't exist, create it
+        handleConnectNodes(connectingNode, targetId);
+      }
     }
     setConnectingNode(null);
   };
@@ -173,6 +183,58 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
     });
     
     setNodes(updatedNodes);
+    
+    const updatedWorkflow = {
+      ...workflow,
+      nodes: updatedNodes,
+      updatedAt: new Date().toISOString()
+    };
+    onUpdateWorkflow(updatedWorkflow);
+  };
+
+  // Function to disconnect nodes
+  const handleDisconnectNodes = (sourceId: string, targetId: string) => {
+    const updatedNodes = nodes.map(node => {
+      if (node.id === sourceId) {
+        return {
+          ...node,
+          connections: node.connections.filter(id => id !== targetId)
+        };
+      }
+      return node;
+    });
+    
+    setNodes(updatedNodes);
+    
+    const updatedWorkflow = {
+      ...workflow,
+      nodes: updatedNodes,
+      updatedAt: new Date().toISOString()
+    };
+    onUpdateWorkflow(updatedWorkflow);
+  };
+
+  // Remove a node and all its connections
+  const handleRemoveNode = (nodeId: string) => {
+    // Remove the node
+    const nodeToRemove = nodes.find(n => n.id === nodeId);
+    if (!nodeToRemove) return;
+
+    // Remove the node and all connections to it
+    const updatedNodes = nodes
+      .filter(n => n.id !== nodeId)
+      .map(node => ({
+        ...node,
+        connections: node.connections.filter(id => id !== nodeId)
+      }));
+    
+    setNodes(updatedNodes);
+    setSelectedNode(null);
+    
+    // Remove from nodePositions
+    const updatedPositions = { ...nodePositions };
+    delete updatedPositions[nodeId];
+    setNodePositions(updatedPositions);
     
     const updatedWorkflow = {
       ...workflow,
@@ -228,28 +290,43 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
     };
 
     const styles = getNodeTypeStyles();
+    const isSelected = selectedNode === node.id;
     
     return (
       <div 
         key={node.id}
         className={`absolute flex flex-col p-3 rounded-lg shadow-lg border-2 transition-transform duration-100 cursor-move
-                    hover:shadow-xl ${styles.borderColor} ${styles.bgColor} ${styles.shadowColor}`}
+                    hover:shadow-xl ${styles.borderColor} ${styles.bgColor} ${styles.shadowColor}
+                    ${isSelected ? 'ring-2 ring-primary ring-offset-2' : ''}`}
         style={{
           width: `${nodeWidth}px`,
           height: `${nodeHeight}px`,
           left: `${position.x}px`,
           top: `${position.y}px`,
-          transform: `scale(${zoom})`,
-          transformOrigin: 'center center',
-          zIndex: dragging === node.id ? 20 : 10
+          zIndex: dragging === node.id || isSelected ? 20 : 10
         }}
         onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
       >
-        <div className="flex items-center gap-2 mb-2">
-          <div className={`flex items-center justify-center w-7 h-7 rounded-full ${styles.bgColor} ${styles.iconColor} text-lg font-bold`}>
-            {styles.icon}
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2">
+            <div className={`flex items-center justify-center w-7 h-7 rounded-full ${styles.bgColor} ${styles.iconColor} text-lg font-bold`}>
+              {styles.icon}
+            </div>
+            <div className="font-medium text-sm truncate">{node.name}</div>
           </div>
-          <div className="font-medium text-sm truncate">{node.name}</div>
+          {isSelected && (
+            <Button 
+              size="sm"
+              variant="ghost"
+              className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-100"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRemoveNode(node.id);
+              }}
+            >
+              <Trash className="h-4 w-4" />
+            </Button>
+          )}
         </div>
         <div className="text-xs text-muted-foreground overflow-hidden flex-grow">
           {node.description}
@@ -257,10 +334,9 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
         <div className="text-xs font-medium pt-2 border-t mt-2 text-muted-foreground flex justify-between items-center">
           <span className="capitalize">{node.type}</span>
           {node.connections.length > 0 && (
-            <div className="flex items-center gap-1">
-              <ArrowRight className="h-3 w-3 text-muted-foreground" />
-              <span>{node.connections.length}</span>
-            </div>
+            <span className="bg-muted px-2 py-0.5 rounded-full text-[10px]">
+              {node.connections.length} 연결
+            </span>
           )}
         </div>
 
@@ -308,24 +384,17 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
       const endX = toPosition.x;
       const endY = toPosition.y + 60;      // nodeHeight / 2
       
-      // Calculate control points for a curved path
-      const distance = Math.abs(endX - startX);
-      const curvature = Math.min(distance * 0.4, 150);
-      
-      // Add some randomness to make it look natural when lines overlap
-      const offset = (index % 3 - 1) * 15;
-      
       // Get color based on node type
       const getPathColor = () => {
         switch (fromNode.type) {
           case 'trigger':
-            return 'stroke-blue-500';
+            return 'stroke-blue-400';
           case 'action':
-            return 'stroke-green-500';
+            return 'stroke-green-400';
           case 'condition':
-            return 'stroke-amber-500';
+            return 'stroke-amber-400';
           default:
-            return 'stroke-gray-500';
+            return 'stroke-gray-400';
         }
       };
 
@@ -337,76 +406,21 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
           className="absolute top-0 left-0 w-full h-full pointer-events-none"
           style={{ 
             zIndex: 5, 
-            transform: `scale(${zoom}) translate(${canvasOffset.x}px, ${canvasOffset.y}px)`,
-            transformOrigin: '0 0',
+            transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px)`,
             width: '100%',
             height: '100%',
             overflow: 'visible'
           }}
         >
-          <defs>
-            <marker
-              id={`arrowhead-${index}`}
-              markerWidth="10"
-              markerHeight="7"
-              refX="9"
-              refY="3.5"
-              orient="auto"
-            >
-              <polygon 
-                points="0 0, 10 3.5, 0 7" 
-                className={pathColor.replace('stroke-', 'fill-')} 
-              />
-            </marker>
-          </defs>
-          
           <path
             d={`M ${startX} ${startY} 
-                C ${startX + curvature + offset} ${startY}, 
-                  ${endX - curvature + offset} ${endY}, 
-                  ${endX} ${endY}`}
+                L ${endX} ${endY}`}
             className={`${pathColor} fill-transparent`}
             style={{ 
               strokeWidth: 2, 
-              strokeDasharray: fromNode.type === 'condition' ? '5,5' : '0',
-              markerEnd: `url(#arrowhead-${index})`
+              strokeDasharray: '5,5'
             }}
           />
-          
-          {/* Animated dot for active workflows - WHITE dot only */}
-          {workflow.status === 'active' && (
-            <circle 
-              cx="0" cy="0" r="4" 
-              className={`${pathColor.replace('stroke-', 'fill-')}`}
-            >
-              <animate
-                attributeName="cx"
-                from={startX}
-                to={endX}
-                dur={`${2 + Math.random() * 2}s`}
-                repeatCount="indefinite"
-                calcMode="spline"
-                keySplines="0.4 0 0.6 1"
-              />
-              <animate
-                attributeName="cy"
-                from={startY}
-                to={endY}
-                dur={`${2 + Math.random() * 2}s`}
-                repeatCount="indefinite"
-                calcMode="spline"
-                keySplines="0.4 0 0.6 1"
-              />
-              <animate
-                attributeName="opacity"
-                from="0"
-                to="1"
-                dur="0.5s"
-                begin="0s"
-                fill="freeze"
-              />
-            </circle>
-          )}
         </svg>
       );
     });
@@ -429,13 +443,13 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
     const getPathColor = () => {
       switch (sourceNode.type) {
         case 'trigger':
-          return 'stroke-blue-500';
+          return 'stroke-blue-400';
         case 'action':
-          return 'stroke-green-500';
+          return 'stroke-green-400';
         case 'condition':
-          return 'stroke-amber-500';
+          return 'stroke-amber-400';
         default:
-          return 'stroke-gray-500';
+          return 'stroke-gray-400';
       }
     };
     
@@ -446,8 +460,7 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
         className="absolute top-0 left-0 w-full h-full pointer-events-none"
         style={{ 
           zIndex: 30, 
-          transform: `scale(${zoom}) translate(${canvasOffset.x}px, ${canvasOffset.y}px)`,
-          transformOrigin: '0 0',
+          transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px)`,
           width: '100%',
           height: '100%',
           overflow: 'visible'
@@ -480,18 +493,14 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
       const canvasBounds = canvasRef.current?.getBoundingClientRect();
       if (!canvasBounds) return;
       
-      // Adjust for zoom and offset
-      const endX = (e.clientX - canvasBounds.left) / zoom - canvasOffset.x;
-      const endY = (e.clientY - canvasBounds.top) / zoom - canvasOffset.y;
+      // Adjust for canvas offset
+      const endX = e.clientX - canvasBounds.left - canvasOffset.x;
+      const endY = e.clientY - canvasBounds.top - canvasOffset.y;
       
-      // Calculate control points for a curved path
-      const distance = Math.abs(endX - startX);
-      const curvature = Math.min(distance * 0.4, 150);
-      
-      // Update path
+      // Update path - use straight line
       const path = document.getElementById('connecting-line');
       if (path) {
-        path.setAttribute('d', `M ${startX} ${startY} C ${startX + curvature} ${startY}, ${endX - curvature} ${endY}, ${endX} ${endY}`);
+        path.setAttribute('d', `M ${startX} ${startY} L ${endX} ${endY}`);
       }
     };
     
@@ -500,59 +509,16 @@ const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ workflow, onUpdateWorkf
     return () => {
       document.removeEventListener('mousemove', updateConnectingLine);
     };
-  }, [connectingNode, nodes, nodePositions, zoom, canvasOffset]);
+  }, [connectingNode, nodes, nodePositions, canvasOffset]);
 
-  const handleZoomIn = () => {
-    setZoom(prev => Math.min(prev + 0.1, 2));
-  };
-
-  const handleZoomOut = () => {
-    setZoom(prev => Math.max(prev - 0.1, 0.5));
-  };
-
-  const handleResetZoom = () => {
-    setZoom(1);
-    setCanvasOffset({ x: 0, y: 0 });
-  };
-  
   return (
     <div className="flex flex-col h-full">
       <div className="bg-white border rounded-lg mb-2 p-1 flex items-center gap-1 self-start shadow-sm">
         <Button 
-          onClick={handleZoomIn} 
-          variant="ghost" 
-          size="sm" 
-          className="h-8 w-8 p-0"
-          title="확대"
-        >
-          <ZoomIn className="h-4 w-4" />
-        </Button>
-        <div className="text-xs px-2">
-          {Math.round(zoom * 100)}%
-        </div>
-        <Button 
-          onClick={handleZoomOut} 
-          variant="ghost" 
-          size="sm" 
-          className="h-8 w-8 p-0"
-          title="축소"
-        >
-          <ZoomOut className="h-4 w-4" />
-        </Button>
-        <Button 
-          onClick={handleResetZoom} 
-          variant="ghost" 
-          size="sm" 
-          className="h-8 w-8 p-0"
-          title="초기화"
-        >
-          <RotateCcw className="h-4 w-4" />
-        </Button>
-        <Button 
           onClick={() => setIsNodeFormOpen(true)}
           variant="outline" 
           size="sm"
-          className="ml-2 text-xs"
+          className="text-xs"
         >
           <Plus className="h-3 w-3 mr-1" />
           노드 추가
